@@ -7,88 +7,28 @@
 // utility
 #include "utility/math_util.hpp"
 #include "utility/dynamixel_utils.hpp"
+#include "utility/imu_util.hpp"
 // control
 #include "control/pid_control.hpp"
+// filter
 #include "filter/lowpass_filter.hpp"
 #include "filter/complementary_filter.hpp"
+
+#include "swipe/swipe.hpp"
 using namespace common_lib;
 
 goblib::UnifiedButton unifiedButton;
 
-PidControl pid;
-pid_parameter_t pid_param;
+uint32_t timer;
+rpy_t est_rpy;
 float target;
 
-enum class sel_param_t
-{
-  KP,
-  KI,
-  KD
-};
-sel_param_t sel_param = sel_param_t::KP;
-float add = 1.0;
-float set_val = 0.0;
-
-// mode
-//  OP_CURRENT
-//  OP_VELOCITY
-//  OP_POSITION
-//  OP_EXTENDED_POSITION
-//  OP_CURRENT_BASED_POSITION
-//  OP_PWM
-DXLMotor m_lw(DXL_ID_LW, OP_VELOCITY);
-DXLMotor m_lf(DXL_ID_LF, OP_CURRENT_BASED_POSITION);
-DXLMotor m_lr(DXL_ID_LR, OP_CURRENT_BASED_POSITION);
-DXLMotor m_rw(DXL_ID_RW, OP_VELOCITY);
-DXLMotor m_rf(DXL_ID_RF, OP_CURRENT_BASED_POSITION);
-DXLMotor m_rr(DXL_ID_RR, OP_CURRENT_BASED_POSITION);
-
-uint32_t timer;
-LowpassFilterf lpf_acc_x(LPF_ALPHA);
-LowpassFilterf lpf_acc_y(LPF_ALPHA);
-ComplementaryFilterf comp_filter_x(COMP_ALPHA);
-ComplementaryFilterf comp_filter_y(COMP_ALPHA);
-
-struct rpy_t
-{
-  float roll;
-  float pitch;
-  float yaw;
-};
-rpy_t est_rpy;
-rpy_t acc_rpy(float accX, float accY, float accZ)
-{
-  rpy_t rpy;
-  float Aroll = atan2f(accY, accZ);
-  float Apitch = -atan2f(accX, sqrtf(accY * accY + accZ * accZ));
-  rpy.roll = Aroll;
-  rpy.pitch = Apitch;
-  rpy.yaw = 0.0F;
-  return rpy;
-}
-
-rpy_t gyro_rpy(rpy_t pre, float gyroX, float gyroY, float gyroZ, float dt)
-{
-  pre.roll += gyroX * dt;
-  pre.pitch += gyroY * dt;
-  pre.yaw += gyroZ * dt;
-  return pre;
-}
-
-void test_dxl_pos()
+void up_dxl_pos()
 {
   m_lf.move(HALF_PI);
   m_rf.move(HALF_PI);
   m_lr.move(HALF_PI);
   m_rr.move(HALF_PI);
-}
-
-void set_dxl_init_pos()
-{
-  m_lf.move(0.0);
-  m_rf.move(0.0);
-  m_lr.move(0.0);
-  m_rr.move(0.0);
 }
 
 void set_angle(float roll, float pitch)
@@ -99,6 +39,11 @@ void set_angle(float roll, float pitch)
   m_lr.move(-roll + pitch * bias);
   m_rr.move(-roll - pitch * bias);
 }
+
+Swipe l_swipe(-50, 0);
+Swipe r_swipe(50, 0);
+Swipe u_swipe(0, -50);
+Swipe d_swipe(0, 10);
 
 void setup()
 {
@@ -174,8 +119,13 @@ void loop()
     x = t.distanceX();
     y = t.distanceY();
     pressed = t.isPressed();
+    l_swipe.update(x, y, pressed);
+    r_swipe.update(x, y, pressed);
+    u_swipe.update(x, y, pressed);
+    d_swipe.update(x, y, pressed);
   }
-  M5.Display.printf("x:%4d y:%4d press:%d,%4.3f\n", x, y, pressed,dt);
+  M5.Display.printf("x:%4d y:%4d press:%d\n", x, y, pressed);
+  M5.Display.printf("dt:%4.3f\n", dt);
   // IMU
   float ax, ay, az;
   float gx, gy, gz;
@@ -204,19 +154,38 @@ void loop()
   pid.set_dt(dt);
   float error = normalize_angle(target - est_rpy.roll);
   float rpm = pid.control(error);
-  if (pressed)
-  {
-    // target = est_rpy.roll;
-    rpm = 0;
-    // test_dxl_pos();
-    set_dxl_init_pos();
-  }
-  // else
-  //   set_angle(est_rpy.roll,est_rpy.pitch);
   if (std::abs(est_rpy.roll) > HALF_PI)
   {
     rpm = 0;
   }
+  // swipe
+  if (l_swipe.isSwipe())
+  {
+    rpm = 0;
+    m_lw.on(true);
+    m_rw.on(true);
+  }
+  else if (r_swipe.isSwipe())
+  {
+    rpm = 0;
+    m_lw.on(false);
+    m_rw.on(false);
+  }
+  if (u_swipe.isSwipe())
+  {
+    rpm = 0;
+    up_dxl_pos();
+  }
+  else if (pressed)
+  {
+    rpm = 0;
+    set_dxl_init_pos();
+  }
+  if (d_swipe.isSwipe())
+  {
+    target = est_rpy.roll;
+  }
+
   m_lw.move(rpm);
   m_rw.move(rpm);
   M5.Display.printf("target:%5.1f error:%5.1f\n", target, error);
@@ -224,71 +193,13 @@ void loop()
   // reg state
   // dxl_status_t lw = m_lw.get_status();
   // dxl_status_t rw = m_rw.get_status();
-  dxl_status_t lf = m_lf.get_status();
-  dxl_status_t rf = m_rf.get_status();
-  dxl_status_t lr = m_lr.get_status();
-  dxl_status_t rr = m_rr.get_status();
-  M5.Display.printf("LF: %5.1f LR:  %5.1f\n", lf.position * RAD_TO_DEG, lr.position * RAD_TO_DEG);
-  M5.Display.printf("RF: %5.1f RR:  %5.1f\n", rf.position * RAD_TO_DEG, rr.position * RAD_TO_DEG);
-  std::string sel_kp, sel_ki, sel_kd;
-  if (M5.BtnB.wasPressed())
-  {
-    switch (sel_param)
-    {
-    case sel_param_t::KP:
-      sel_param = sel_param_t::KI;
-      set_val = pid_param.ki;
-      add = 50.0;
-      break;
-    case sel_param_t::KI:
-      sel_param = sel_param_t::KD;
-      set_val = pid_param.kd;
-      add = 0.5;
-      break;
-    case sel_param_t::KD:
-      sel_param = sel_param_t::KP;
-
-      set_val = pid_param.kp;
-      add = 10.0;
-      break;
-    }
-  }
-  else
-  {
-    if (M5.BtnA.wasPressed())
-    {
-      set_val += add;
-    }
-    if (M5.BtnC.wasPressed())
-    {
-      set_val -= add;
-      if (set_val < 0)
-        set_val = 0;
-    }
-    switch (sel_param)
-    {
-    case sel_param_t::KP:
-      sel_kp = "*";
-      sel_ki = "";
-      sel_kd = "";
-      pid_param.kp = set_val;
-      break;
-    case sel_param_t::KI:
-      sel_kp = "";
-      sel_ki = "*";
-      sel_kd = "";
-      pid_param.ki = set_val;
-      break;
-    case sel_param_t::KD:
-      sel_kp = "";
-      sel_ki = "";
-      sel_kd = "*";
-      pid_param.kd = set_val;
-      break;
-    }
-    pid.set_parameter(pid_param);
-  }
-  M5.Display.printf("%skp:%4.0f|%ski:%4.0f|%skd:%2.1f\n", sel_kp.c_str(), pid_param.kp, sel_ki.c_str(), pid_param.ki, sel_kd.c_str(), pid_param.kd);
+  // dxl_status_t lf = m_lf.get_status();
+  // dxl_status_t rf = m_rf.get_status();
+  // dxl_status_t lr = m_lr.get_status();
+  // dxl_status_t rr = m_rr.get_status();
+  // M5.Display.printf("LF: %5.1f LR:  %5.1f\n", lf.position * RAD_TO_DEG, lr.position * RAD_TO_DEG);
+  // M5.Display.printf("RF: %5.1f RR:  %5.1f\n", rf.position * RAD_TO_DEG, rr.position * RAD_TO_DEG);
+  set_param();
   M5.Display.endWrite();
   unifiedButton.draw();
   // delay(1);
