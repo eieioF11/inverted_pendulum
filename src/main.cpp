@@ -43,7 +43,7 @@ void set_angle(float roll, float pitch)
 Swipe l_swipe(-50, 0);
 Swipe r_swipe(50, 0);
 Swipe u_swipe(0, -50);
-Swipe d_swipe(0, 10);
+Swipe d_swipe(0, 30);
 
 void setup()
 {
@@ -171,19 +171,19 @@ void loop()
     m_lw.on(false);
     m_rw.on(false);
   }
-  if (u_swipe.isSwipe())
+  else if (u_swipe.isSwipe())
   {
     rpm = 0;
     up_dxl_pos();
   }
-  else if (pressed)
+  else if (d_swipe.isSwipe())
+  {
+    target = est_rpy.roll;
+  }
+  else if (!u_swipe.isSwipe()&&pressed)
   {
     rpm = 0;
     set_dxl_init_pos();
-  }
-  if (d_swipe.isSwipe())
-  {
-    target = est_rpy.roll;
   }
 
   m_lw.move(rpm);
