@@ -92,11 +92,12 @@ void setup()
   // m_lr.on(false);
   // m_rr.on(false);
   // pid
-  pid_param.kp = 600.0;
-  pid_param.ki = 2000.0;
+  pid_param.kp = 400.0;
+  pid_param.ki = 1000.0;
   pid_param.kd = 0.0;
   pid_param.control_freq = 1000.0;
   pid_param.output_upper_limit = MAX_RPM;
+  pid_param.integral_upper_limit = 1000.0;
   pid.set_parameter(pid_param);
   set_val = pid_param.kp;
   target = 0.0;
@@ -174,7 +175,7 @@ void loop()
   else if (u_swipe.isSwipe())
   {
     rpm = 0;
-    up_dxl_pos();
+    // up_dxl_pos();
   }
   else if (d_swipe.isSwipe())
   {
@@ -185,7 +186,7 @@ void loop()
     rpm = 0;
     set_dxl_init_pos();
   }
-
+  set_angle(est_rpy.roll, est_rpy.pitch);
   m_lw.move(rpm);
   m_rw.move(rpm);
   M5.Display.printf("target:%5.1f error:%5.1f\n", target, error);
