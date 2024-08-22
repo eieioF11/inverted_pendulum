@@ -20,7 +20,8 @@ namespace common_lib
    *
    */
   inline namespace constants {
-
+    constexpr float RPM_TO_MPS = TWO_PI/60.0;
+    constexpr float MPS_TO_RPM = 60.0/TWO_PI;
     /// 円周率 / 4
     constexpr float QUARTER_PI = PI / 4.0;
 

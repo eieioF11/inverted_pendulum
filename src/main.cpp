@@ -10,6 +10,7 @@
 #include "utility/imu_util.hpp"
 // control
 #include "control/pid_control.hpp"
+#include "control/lqr_control.hpp"
 // filter
 #include "filter/lowpass_filter.hpp"
 #include "filter/complementary_filter.hpp"
@@ -21,7 +22,6 @@ goblib::UnifiedButton unifiedButton;
 
 uint32_t timer;
 rpy_t est_rpy;
-float target;
 
 void up_dxl_pos()
 {
@@ -31,13 +31,13 @@ void up_dxl_pos()
   m_rr.move(HALF_PI);
 }
 
-void set_angle(float roll, float pitch)
+void set_angle(float angle, float roll, float pitch)
 {
   float bias = 0.0;
-  m_lf.move(roll + pitch * bias);
-  m_rf.move(roll - pitch * bias);
-  m_lr.move(-roll + pitch * bias);
-  m_rr.move(-roll - pitch * bias);
+  m_lf.move(angle + roll + pitch * bias);
+  m_rf.move(angle + roll - pitch * bias);
+  m_lr.move(angle - roll + pitch * bias);
+  m_rr.move(angle - roll - pitch * bias);
 }
 
 Swipe l_swipe(-50, 0);
@@ -83,7 +83,7 @@ void setup()
   m_lr.set_limit(MIN_ANGLE_LIMIT, MAX_ANGLE_LIMIT);
   m_rr.set_limit(MIN_ANGLE_LIMIT, MAX_ANGLE_LIMIT);
   // 初期位置
-  set_dxl_init_pos();
+  set_dxl_pos(DEFAULT_ANGLE);
   // デバック
   // m_lw.on(false);
   // m_rw.on(false);
@@ -92,22 +92,27 @@ void setup()
   // m_lr.on(false);
   // m_rr.on(false);
   // pid
-  pid_param.kp = 400.0;
-  pid_param.ki = 1000.0;
+  pid_param.kp = 60.0;
+  pid_param.ki = 0.0;
   pid_param.kd = 0.0;
   pid_param.control_freq = 1000.0;
   pid_param.output_upper_limit = MAX_RPM;
   pid_param.integral_upper_limit = 1000.0;
   pid.set_parameter(pid_param);
   set_val = pid_param.kp;
-  target = 0.0;
+  // lqr.set_gain(LQR_K);
   timer = micros();
 }
 
 void loop()
 {
   M5.update();
-  double dt = (double)(micros() - timer) / 1000000; // Calculate delta time
+  // dxl_status_t lw = m_lw.get_status();
+  // dxl_status_t rw = m_rw.get_status();
+  // float vl = lw.velocity*constants::RPM_TO_MPS*WHEEL_RADIUS;
+  // float vr = rw.velocity*constants::RPM_TO_MPS*WHEEL_RADIUS;
+  // float v = (vl + vr) / 2.0;
+  float dt = (float)(micros() - timer) / 1000000; // Calculate delta time
   timer = micros();
   unifiedButton.update();
   M5.Display.startWrite();
@@ -125,7 +130,7 @@ void loop()
     u_swipe.update(x, y, pressed);
     d_swipe.update(x, y, pressed);
   }
-  M5.Display.printf("x:%4d y:%4d press:%d\n", x, y, pressed);
+  // M5.Display.printf("x:%4d y:%4d press:%d\n", x, y, pressed);
   M5.Display.printf("dt:%4.3f\n", dt);
   // IMU
   float ax, ay, az;
@@ -139,25 +144,30 @@ void loop()
   rpy_t a_rpy = acc_rpy(ax, ay, az);
   rpy_t g_rpy = gyro_rpy(est_rpy, gx, gy, gz, dt);
   est_rpy.yaw = g_rpy.yaw;
-  a_rpy.roll = normalize_angle(a_rpy.roll - HALF_PI);
-  // a_rpy.roll = lpf_acc_x.filtering(a_rpy.roll);
-  // a_rpy.pitch = lpf_acc_y.filtering(a_rpy.pitch);
-  // est_rpy.roll = a_rpy.roll;
-  // est_rpy.pitch = a_rpy.pitch;
+  // a_rpy.roll = normalize_angle(a_rpy.roll - HALF_PI);
+  // est_rpy.roll = lpf_acc_x.filtering(a_rpy.roll);
+  // est_rpy.pitch = lpf_acc_y.filtering(a_rpy.pitch);
   est_rpy.roll = comp_filter_x.filtering(a_rpy.roll, g_rpy.roll);
   est_rpy.pitch = comp_filter_y.filtering(a_rpy.pitch, g_rpy.pitch);
-  M5.Display.printf("acc(%5.1f,%5.1f,%5.1f)\n", ax, ay, az);
-  M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
-  M5.Display.printf("aRPY(%5.1f,%5.1f,%5.1f)\n", a_rpy.roll, a_rpy.pitch, a_rpy.yaw);
-  M5.Display.printf("gRPY(%5.1f,%5.1f,%5.1f)\n", g_rpy.roll, g_rpy.pitch, g_rpy.yaw);
-  M5.Display.printf("RPY(%5.1f,%5.1f,%5.1f)\n", est_rpy.roll, est_rpy.pitch, est_rpy.yaw);
+  // M5.Display.printf("acc(%5.1f,%5.1f,%5.1f)\n", ax, ay, az);
+  // M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
+  M5.Display.printf("aRPY(%5.1f,%5.1f,%5.1f)\n", a_rpy.roll * RAD_TO_DEG, a_rpy.pitch * RAD_TO_DEG, a_rpy.yaw * RAD_TO_DEG);
+  // M5.Display.printf("gRPY(%5.1f,%5.1f,%5.1f)\n", g_rpy.roll*RAD_TO_DEG, g_rpy.pitch*RAD_TO_DEG, g_rpy.yaw*RAD_TO_DEG);
+  M5.Display.printf("RPY(%5.1f,%5.1f,%5.1f)\n", est_rpy.roll * RAD_TO_DEG, est_rpy.pitch * RAD_TO_DEG, est_rpy.yaw * RAD_TO_DEG);
   // Set Goal Velocity using RPM
+  // dist += v * dt;
+  float diff_angle = normalize_angle(target - est_rpy.roll);
+  gx -= 0.0011;
+  if (approx_zero(gx, 0.005))
+    gx = 0.f;
+  M5.Display.printf("%5.3f,%5.3f\n", diff_angle, gx);
   pid.set_dt(dt);
-  float error = normalize_angle(target - est_rpy.roll);
-  float rpm = pid.control(error);
-  if (std::abs(est_rpy.roll) > HALF_PI)
+  float error = diff_angle / P_RATIO;
+  float rpm = pid.control(error - Kgx * gx);
+  if (std::abs(diff_angle) > HALF_PI)
   {
     rpm = 0;
+    pid.reset();
   }
   // swipe
   if (l_swipe.isSwipe())
@@ -181,15 +191,16 @@ void loop()
   {
     target = est_rpy.roll;
   }
-  else if (!u_swipe.isSwipe()&&pressed)
+  else if (!u_swipe.isSwipe() && pressed)
   {
     rpm = 0;
-    set_dxl_init_pos();
+    pid.reset();
+    set_dxl_pos(DEFAULT_ANGLE);
   }
-  set_angle(est_rpy.roll, est_rpy.pitch);
+  set_angle(DEFAULT_ANGLE, -2.0 * lpf_roll.filtering(diff_angle), est_rpy.pitch);
   m_lw.move(rpm);
   m_rw.move(rpm);
-  M5.Display.printf("target:%5.1f error:%5.1f\n", target, error);
+  M5.Display.printf("target:%5.1f error:%5.1f\n", target * RAD_TO_DEG, error);
   M5.Display.printf("rpm:%5.1f\n", rpm);
   // reg state
   // dxl_status_t lw = m_lw.get_status();

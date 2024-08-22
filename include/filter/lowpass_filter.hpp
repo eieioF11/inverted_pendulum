@@ -26,7 +26,7 @@ namespace common_lib {
      *
      * @param alpha : 0.0~1.0の値
      */
-    LowpassFilter(value_type alpha) : alpha_(alpha){};
+    LowpassFilter(value_type alpha) : alpha_(alpha), pre_val_(0.0) {};
     /**
      * @brief alphaの設定
      *
