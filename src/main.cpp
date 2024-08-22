@@ -107,11 +107,11 @@ void setup()
 void loop()
 {
   M5.update();
-  // dxl_status_t lw = m_lw.get_status();
-  // dxl_status_t rw = m_rw.get_status();
-  // float vl = lw.velocity*constants::RPM_TO_MPS*WHEEL_RADIUS;
-  // float vr = rw.velocity*constants::RPM_TO_MPS*WHEEL_RADIUS;
-  // float v = (vl + vr) / 2.0;
+  dxl_status_t lw = m_lw.get_status();
+  dxl_status_t rw = m_rw.get_status();
+  float vl = lw.velocity*constants::RPM_TO_MPS*WHEEL_RADIUS;
+  float vr = rw.velocity*constants::RPM_TO_MPS*WHEEL_RADIUS;
+  float v = (vl + vr) * 0.5;
   float dt = (float)(micros() - timer) / 1000000; // Calculate delta time
   timer = micros();
   unifiedButton.update();
@@ -163,7 +163,7 @@ void loop()
   M5.Display.printf("%5.3f,%5.3f\n", diff_angle, gx);
   pid.set_dt(dt);
   float error = diff_angle / P_RATIO;
-  float rpm = pid.control(error - Kgx * gx);
+  float rpm = pid.control(error - Kgx * gx + Kv * v);
   if (std::abs(diff_angle) > HALF_PI)
   {
     rpm = 0;
@@ -202,6 +202,7 @@ void loop()
   m_rw.move(rpm);
   M5.Display.printf("target:%5.1f error:%5.1f\n", target * RAD_TO_DEG, error);
   M5.Display.printf("rpm:%5.1f\n", rpm);
+  M5.Display.printf("v:%5.3f[m/s]\n", v);
   // reg state
   // dxl_status_t lw = m_lw.get_status();
   // dxl_status_t rw = m_rw.get_status();

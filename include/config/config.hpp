@@ -85,15 +85,17 @@ enum class sel_param_t
   KP,
   KI,
   KD,
-  KGX
+  KGX,
+  KV
 };
 sel_param_t sel_param = sel_param_t::KP;
 float Kgx = 1.0;
+float Kv = 0.0;
 float add = 1.0;
 float set_val = 0.0;
 void set_param()
 {
-  std::string sel_kp, sel_ki, sel_kd, sel_kgx;
+  std::string sel_kp, sel_ki, sel_kd, sel_kgx, sel_kv;
   if (M5.BtnB.wasPressed())
   {
     switch (sel_param)
@@ -115,6 +117,11 @@ void set_param()
       add = 0.1;
       break;
     case sel_param_t::KGX:
+      sel_param = sel_param_t::KV;
+      set_val = Kv;
+      add = 0.1;
+      break;
+    case sel_param_t::KV:
       sel_param = sel_param_t::KP;
       set_val = pid_param.kp;
       add = 10.0;
@@ -130,7 +137,7 @@ void set_param()
     if (M5.BtnC.wasPressed())
     {
       set_val -= add;
-      if (set_val < 0)
+      if (set_val < 0 &&  sel_param != sel_param_t::KV)
         set_val = 0;
     }
     switch (sel_param)
@@ -140,6 +147,7 @@ void set_param()
       sel_ki = "";
       sel_kd = "";
       sel_kgx = "";
+      sel_kv = "";
       pid_param.kp = set_val;
       break;
     case sel_param_t::KI:
@@ -147,6 +155,7 @@ void set_param()
       sel_ki = "*";
       sel_kd = "";
       sel_kgx = "";
+      sel_kv = "";
       pid_param.ki = set_val;
       break;
     case sel_param_t::KD:
@@ -154,6 +163,7 @@ void set_param()
       sel_ki = "";
       sel_kd = "*";
       sel_kgx = "";
+      sel_kv = "";
       pid_param.kd = set_val;
       break;
     case sel_param_t::KGX:
@@ -161,11 +171,20 @@ void set_param()
       sel_ki = "";
       sel_kd = "";
       sel_kgx = "*";
+      sel_kv = "";
       Kgx = set_val;
+      break;
+    case sel_param_t::KV:
+      sel_kp = "";
+      sel_ki = "";
+      sel_kd = "";
+      sel_kgx = "";
+      sel_kv = "*";
+      Kv = set_val;
       break;
     }
     pid.set_parameter(pid_param);
   }
   M5.Display.printf("%skp:%4.0f|%ski:%4.0f|%skd:%2.1f\n", sel_kp.c_str(), pid_param.kp, sel_ki.c_str(), pid_param.ki, sel_kd.c_str(), pid_param.kd);
-  M5.Display.printf("%sKgx:%2.1f\n", sel_kgx.c_str(), Kgx);
+  M5.Display.printf("%sKgx:%2.1f|%sKv:%2.1f\n", sel_kgx.c_str(), Kgx, sel_kv.c_str(), Kv);
 }
