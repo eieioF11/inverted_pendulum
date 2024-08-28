@@ -64,6 +64,11 @@ void set_dxl_pos(double angle = 0.0)
   m_lr.move(angle);
   m_rr.move(angle);
 }
+// gyro
+const float CALIB_TIME = 2.0;
+bool claib_flag = true;
+int calib_count = 0;
+std::array<float, 3> gyro_offset = {0.0, 0.0, 0.0};
 
 // filter
 common_lib::LowpassFilterf lpf_roll(0.09);

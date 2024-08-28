@@ -107,6 +107,30 @@ void setup()
 void loop()
 {
   M5.update();
+  if(claib_flag)
+  {
+    float calib_time = (float)(micros() - timer) / 1000000;
+    if(calib_time > CALIB_TIME)
+      claib_flag = false;
+    M5.Display.startWrite();
+    M5.Display.setCursor(0, 0);
+    M5.Display.printf("Gyro Calibration\n");
+    M5.Display.printf("time:%4.3f\n", calib_time);
+    float gx, gy, gz;
+    M5.Imu.getGyro(&gx, &gy, &gz);
+    M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
+    gyro_offset[0] += gx;
+    gyro_offset[1] += gy;
+    gyro_offset[2] += gz;
+    calib_count++;
+    gyro_offset[0] /= calib_count;
+    gyro_offset[1] /= calib_count;
+    gyro_offset[2] /= calib_count;
+    // M5.Display.printf("offset(%5.4f,%5.4f,%5.4f)\n", gyro_offset[0], gyro_offset[1], gyro_offset[2]);
+    M5.Display.printf("count:%d\n", calib_count);
+    M5.Display.endWrite();
+    return;
+  }
   dxl_status_t lw = m_lw.get_status();
   dxl_status_t rw = m_rw.get_status();
   float vl = lw.velocity*constants::RPM_TO_MPS*WHEEL_RADIUS;
@@ -137,6 +161,9 @@ void loop()
   float gx, gy, gz;
   M5.Imu.getAccel(&ax, &ay, &az);
   M5.Imu.getGyro(&gx, &gy, &gz);
+  gx -= gyro_offset[0];
+  gy -= gyro_offset[1];
+  gz -= gyro_offset[2];
   gx *= DEG_TO_RAD;
   gy *= DEG_TO_RAD;
   gz *= DEG_TO_RAD;
@@ -151,13 +178,13 @@ void loop()
   est_rpy.pitch = comp_filter_y.filtering(a_rpy.pitch, g_rpy.pitch);
   // M5.Display.printf("acc(%5.1f,%5.1f,%5.1f)\n", ax, ay, az);
   // M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
+  M5.Display.printf("offset(%6.4f,%6.4f,%6.4f)\n", gyro_offset[0], gyro_offset[1], gyro_offset[2]);
   M5.Display.printf("aRPY(%5.1f,%5.1f,%5.1f)\n", a_rpy.roll * RAD_TO_DEG, a_rpy.pitch * RAD_TO_DEG, a_rpy.yaw * RAD_TO_DEG);
   // M5.Display.printf("gRPY(%5.1f,%5.1f,%5.1f)\n", g_rpy.roll*RAD_TO_DEG, g_rpy.pitch*RAD_TO_DEG, g_rpy.yaw*RAD_TO_DEG);
   M5.Display.printf("RPY(%5.1f,%5.1f,%5.1f)\n", est_rpy.roll * RAD_TO_DEG, est_rpy.pitch * RAD_TO_DEG, est_rpy.yaw * RAD_TO_DEG);
   // Set Goal Velocity using RPM
   // dist += v * dt;
   float diff_angle = normalize_angle(target - est_rpy.roll);
-  gx -= 0.0011;
   if (approx_zero(gx, 0.005))
     gx = 0.f;
   M5.Display.printf("%5.3f,%5.3f\n", diff_angle, gx);
