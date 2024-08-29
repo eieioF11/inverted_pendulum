@@ -40,6 +40,12 @@ namespace common_lib
     ///
     constexpr float gfcm2mNm = (gfm2Nm / 100);
 
+    // si unit
+    constexpr float m_to_cm = 100.0;
+    constexpr float cm_to_m = 0.01;
+    constexpr float m_to_mm = 1000.0;
+    constexpr float mm_to_m = 0.001;
+
   } // namespace constants
 
   // Function

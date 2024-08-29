@@ -14,36 +14,17 @@
 // filter
 #include "filter/lowpass_filter.hpp"
 #include "filter/complementary_filter.hpp"
-
-#include "swipe/swipe.hpp"
 using namespace common_lib;
 
 goblib::UnifiedButton unifiedButton;
-
-uint32_t timer;
 rpy_t est_rpy;
+float leg_height = parallel_link::DEFAULT_LEG_HEIGHT;
 
 void up_dxl_pos()
 {
-  m_lf.move(HALF_PI);
-  m_rf.move(HALF_PI);
-  m_lr.move(HALF_PI);
-  m_rr.move(HALF_PI);
+  auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height + 20.0 * constants::mm_to_m);
+  set_angle(theta1, theta2);
 }
-
-void set_angle(float angle, float roll, float pitch)
-{
-  float bias = 0.0;
-  m_lf.move(angle + roll + pitch * bias);
-  m_rf.move(angle + roll - pitch * bias);
-  m_lr.move(angle - roll + pitch * bias);
-  m_rr.move(angle - roll - pitch * bias);
-}
-
-Swipe l_swipe(-50, 0);
-Swipe r_swipe(50, 0);
-Swipe u_swipe(0, -50);
-Swipe d_swipe(0, 30);
 
 void setup()
 {
@@ -83,10 +64,11 @@ void setup()
   m_lr.set_limit(MIN_ANGLE_LIMIT, MAX_ANGLE_LIMIT);
   m_rr.set_limit(MIN_ANGLE_LIMIT, MAX_ANGLE_LIMIT);
   // 初期位置
-  set_dxl_pos(DEFAULT_ANGLE);
+  auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
+  set_angle(theta1, theta2);
   // デバック
-  // m_lw.on(false);
-  // m_rw.on(false);
+  m_lw.on(false);
+  m_rw.on(false);
   // m_lf.on(false);
   // m_rf.on(false);
   // m_lr.on(false);
@@ -107,34 +89,15 @@ void setup()
 void loop()
 {
   M5.update();
-  if(claib_flag)
+  if (claib_flag)
   {
-    float calib_time = (float)(micros() - timer) / 1000000;
-    if(calib_time > CALIB_TIME)
-      claib_flag = false;
-    M5.Display.startWrite();
-    M5.Display.setCursor(0, 0);
-    M5.Display.printf("Gyro Calibration\n");
-    M5.Display.printf("time:%4.3f\n", calib_time);
-    float gx, gy, gz;
-    M5.Imu.getGyro(&gx, &gy, &gz);
-    M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
-    gyro_offset[0] += gx;
-    gyro_offset[1] += gy;
-    gyro_offset[2] += gz;
-    calib_count++;
-    gyro_offset[0] /= calib_count;
-    gyro_offset[1] /= calib_count;
-    gyro_offset[2] /= calib_count;
-    // M5.Display.printf("offset(%5.4f,%5.4f,%5.4f)\n", gyro_offset[0], gyro_offset[1], gyro_offset[2]);
-    M5.Display.printf("count:%d\n", calib_count);
-    M5.Display.endWrite();
+    gyro_caliblation();
     return;
   }
   dxl_status_t lw = m_lw.get_status();
   dxl_status_t rw = m_rw.get_status();
-  float vl = lw.velocity*constants::RPM_TO_MPS*WHEEL_RADIUS;
-  float vr = rw.velocity*constants::RPM_TO_MPS*WHEEL_RADIUS;
+  float vl = lw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
+  float vr = rw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
   float v = (vl + vr) * 0.5;
   float dt = (float)(micros() - timer) / 1000000; // Calculate delta time
   timer = micros();
@@ -157,16 +120,16 @@ void loop()
   // M5.Display.printf("x:%4d y:%4d press:%d\n", x, y, pressed);
   M5.Display.printf("dt:%4.3f\n", dt);
   // IMU
-  float ax, ay, az;
-  float gx, gy, gz;
-  M5.Imu.getAccel(&ax, &ay, &az);
-  M5.Imu.getGyro(&gx, &gy, &gz);
-  gx -= gyro_offset[0];
-  gy -= gyro_offset[1];
-  gz -= gyro_offset[2];
-  gx *= DEG_TO_RAD;
-  gy *= DEG_TO_RAD;
-  gz *= DEG_TO_RAD;
+  float raw_ax, raw_ay, raw_az;
+  float raw_gx, raw_gy, raw_gz;
+  M5.Imu.getAccel(&raw_ax, &raw_ay, &raw_az);
+  M5.Imu.getGyro(&raw_gx, &raw_gy, &raw_gz);
+  float gx = (raw_gx - gyro_offset[0]) * DEG_TO_RAD;
+  float gy = (raw_gy - gyro_offset[1]) * DEG_TO_RAD;
+  float gz = (raw_gz - gyro_offset[2]) * DEG_TO_RAD;
+  float ax = raw_ax;
+  float ay = raw_ay;
+  float az = raw_az;
   // 姿勢計算
   rpy_t a_rpy = acc_rpy(ax, ay, az);
   rpy_t g_rpy = gyro_rpy(est_rpy, gx, gy, gz, dt);
@@ -178,8 +141,8 @@ void loop()
   est_rpy.pitch = comp_filter_y.filtering(a_rpy.pitch, g_rpy.pitch);
   // M5.Display.printf("acc(%5.1f,%5.1f,%5.1f)\n", ax, ay, az);
   // M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
-  M5.Display.printf("offset(%6.4f,%6.4f,%6.4f)\n", gyro_offset[0], gyro_offset[1], gyro_offset[2]);
-  M5.Display.printf("aRPY(%5.1f,%5.1f,%5.1f)\n", a_rpy.roll * RAD_TO_DEG, a_rpy.pitch * RAD_TO_DEG, a_rpy.yaw * RAD_TO_DEG);
+  // M5.Display.printf("offset(%6.4f,%6.4f,%6.4f)\n", gyro_offset[0], gyro_offset[1], gyro_offset[2]);
+  // M5.Display.printf("aRPY(%5.1f,%5.1f,%5.1f)\n", a_rpy.roll * RAD_TO_DEG, a_rpy.pitch * RAD_TO_DEG, a_rpy.yaw * RAD_TO_DEG);
   // M5.Display.printf("gRPY(%5.1f,%5.1f,%5.1f)\n", g_rpy.roll*RAD_TO_DEG, g_rpy.pitch*RAD_TO_DEG, g_rpy.yaw*RAD_TO_DEG);
   M5.Display.printf("RPY(%5.1f,%5.1f,%5.1f)\n", est_rpy.roll * RAD_TO_DEG, est_rpy.pitch * RAD_TO_DEG, est_rpy.yaw * RAD_TO_DEG);
   // Set Goal Velocity using RPM
@@ -187,14 +150,17 @@ void loop()
   float diff_angle = normalize_angle(target - est_rpy.roll);
   if (approx_zero(gx, 0.005))
     gx = 0.f;
-  M5.Display.printf("%5.3f,%5.3f\n", diff_angle, gx);
   pid.set_dt(dt);
   float error = diff_angle / P_RATIO;
-  float rpm = pid.control(error - Kgx * gx + Kv * v);
+  float rpm = pid.control(error) - Kgx * gx + Kv * v;
+  bool stop = false;
   if (std::abs(diff_angle) > HALF_PI)
   {
     rpm = 0;
     pid.reset();
+    auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
+    set_angle(theta1, theta2);
+    stop = true;
   }
   // swipe
   if (l_swipe.isSwipe())
@@ -222,23 +188,38 @@ void loop()
   {
     rpm = 0;
     pid.reset();
-    set_dxl_pos(DEFAULT_ANGLE);
+    stop = true;
   }
-  set_angle(DEFAULT_ANGLE, -2.0 * lpf_roll.filtering(diff_angle), est_rpy.pitch);
   m_lw.move(rpm);
   m_rw.move(rpm);
+  M5.Display.printf("diff_angle:%5.1f,gx:%5.1f\n", diff_angle * RAD_TO_DEG, gx);
   M5.Display.printf("target:%5.1f error:%5.1f\n", target * RAD_TO_DEG, error);
   M5.Display.printf("rpm:%5.1f\n", rpm);
-  M5.Display.printf("v:%5.3f[m/s]\n", v);
-  // reg state
-  // dxl_status_t lw = m_lw.get_status();
-  // dxl_status_t rw = m_rw.get_status();
-  // dxl_status_t lf = m_lf.get_status();
-  // dxl_status_t rf = m_rf.get_status();
-  // dxl_status_t lr = m_lr.get_status();
-  // dxl_status_t rr = m_rr.get_status();
-  // M5.Display.printf("LF: %5.1f LR:  %5.1f\n", lf.position * RAD_TO_DEG, lr.position * RAD_TO_DEG);
-  // M5.Display.printf("RF: %5.1f RR:  %5.1f\n", rf.position * RAD_TO_DEG, rr.position * RAD_TO_DEG);
+  M5.Display.printf("v:%5.3f[m/s],", v);
+  M5.Display.printf("dd:%5.3f\n", v * dt);
+  // 水平維持
+  if (!stop)
+  {
+    float theta_T1 = lpf_x.filtering(diff_angle);
+    float theta_T2 = normalize_angle(target_pitch - est_rpy.pitch);
+    // float theta_T2 = lpf_y.filtering(normalize_angle(target_pitch - est_rpy.pitch));
+    // float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
+    float tan_theta_T2 = 0.0;
+    // float xt = -leg_height * std::tan(theta_T1) + v * dt;
+    float xt = - v * dt * 0.1;
+    float l_yt = leg_height - tan_theta_T2;
+    float r_yt = leg_height + tan_theta_T2;
+    M5.Display.printf("xt:%5.3f|l:%5.3f|r:%5.3f\n", xt, l_yt, r_yt);
+    auto [lf_theta, lr_theta] = parallel_link::inv_kinematics(xt, l_yt);
+    auto [rf_theta, rr_theta] = parallel_link::inv_kinematics(xt, r_yt);
+    set_angle(lf_theta, rf_theta, lr_theta, rr_theta);
+  }
+  else
+  {
+    auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
+    set_angle(theta1, theta2);
+  }
+  // パラメータ設定
   set_param();
   M5.Display.endWrite();
   unifiedButton.draw();
