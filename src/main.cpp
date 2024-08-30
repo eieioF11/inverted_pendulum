@@ -1,13 +1,18 @@
+#include <SD.h>
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <Dynamixel2Arduino.h>
 #include <gob_unifiedButton.hpp>
+// ota
+#define ESP32_RTOS
+#include "ota/ota.h"
 // config
 #include "config/config.hpp"
 // utility
 #include "utility/math_util.hpp"
 #include "utility/dynamixel_utils.hpp"
 #include "utility/imu_util.hpp"
+#include "utility/string_util.hpp"
 // control
 #include "control/pid_control.hpp"
 #include "control/lqr_control.hpp"
@@ -26,13 +31,83 @@ void up_dxl_pos()
   set_angle(theta1, theta2);
 }
 
+const char *fname = "/wifi.csv";
+File fp;
+std::string ssid;
+std::string password;
+
 void setup()
 {
+  Serial.begin(115200);
+  // USBSerial.begin(115200);
+  // AW9523(拡張IO)
+  aw9523_begin();
+  bool sdexist = sd_exist();
   // M5設定
   auto cfg = M5.config();
   M5.begin(cfg);
-  M5.Display.setTextSize(2);
+  Serial.printf("SD CARD:%d\n", sdexist);
+  // SD
+  if (sdexist)
+  {
+    while (!SD.begin(SD_SPI_CS_PIN, SPI, 25000000))
+    {
+      Serial.println("SD CARD ERROR");
+      delay(1000);
+    }
+    // ota設定
+    // setupOTA();
+    fp = SD.open(fname);
+    if (fp)
+    {
+      unsigned int cnt = 0;
+      char data[64];
+      char *str;
+      bool flag = false;
+      Serial.println("file reading");
+      while (fp.available())
+      {
+        data[cnt++] = fp.read();
+        flag = true;
+      }
+      if (flag)
+      {
+        std::string str_data = std::string(data);
+        std::vector<std::string> str_l = split(str_data, "\n");
+        if (str_l.size() >= 2)
+        {
+          std::vector<std::string> vec1 = split(str_l[0], ",");
+          std::vector<std::string> vec2 = split(str_l[1], ",");
+          if (vec1.size() >= 2 && vec2.size() >= 2)
+          {
+            if (vec1[0] == "SSID" && vec2[0] == "PASS")
+            {
+              ssid = vec1[1];
+              password = vec2[1];
+              Serial.println("wifi info");
+              Serial.printf("ssid:%s\n", ssid.c_str());
+              Serial.printf("pass:%s\n", password.c_str());
+              setupOTA(ssid.c_str(), password.c_str());
+            }
+          }
+        }
+      }
+      else
+        Serial.println("file read error");
+      fp.close();
+    }
+    else
+      Serial.println("file open error");
+  }
+  else
+  {
+    // ota設定
+    setupOTA();
+    Serial.println("SD not exist");
+  }
+  // ディスプレイ設定
   M5.Display.setCursor(0, 0);
+  M5.Display.setTextSize(2);
   // button設定
   unifiedButton.begin(&M5.Display);
   auto btnA = unifiedButton.getButtonA();
@@ -84,6 +159,9 @@ void setup()
   set_val = pid_param.kp;
   // lqr.set_gain(LQR_K);
   timer = micros();
+
+  Serial.printf("ssid:%s\n", ssid.c_str());
+  Serial.printf("ip:%s\n", WiFi.localIP().toString().c_str());
 }
 
 void loop()
@@ -118,6 +196,8 @@ void loop()
     d_swipe.update(x, y, pressed);
   }
   // M5.Display.printf("x:%4d y:%4d press:%d\n", x, y, pressed);
+  M5.Display.printf("ssid:%s\n", ssid.c_str());
+  M5.Display.printf("ip:%s\n", WiFi.localIP().toString().c_str());
   M5.Display.printf("dt:%4.3f\n", dt);
   // IMU
   float raw_ax, raw_ay, raw_az;
@@ -203,10 +283,10 @@ void loop()
     float theta_T1 = lpf_x.filtering(diff_angle);
     float theta_T2 = normalize_angle(target_pitch - est_rpy.pitch);
     // float theta_T2 = lpf_y.filtering(normalize_angle(target_pitch - est_rpy.pitch));
-    // float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
-    float tan_theta_T2 = 0.0;
-    // float xt = -leg_height * std::tan(theta_T1) + v * dt;
-    float xt = - v * dt * 0.1;
+    float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
+    // float tan_theta_T2 = 0.0;
+    float xt = -leg_height * std::tan(theta_T1);
+    // float xt = - v * dt * 0.1;
     float l_yt = leg_height - tan_theta_T2;
     float r_yt = leg_height + tan_theta_T2;
     M5.Display.printf("xt:%5.3f|l:%5.3f|r:%5.3f\n", xt, l_yt, r_yt);

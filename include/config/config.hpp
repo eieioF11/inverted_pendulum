@@ -15,9 +15,31 @@
 #include "swipe/swipe.hpp"
 // kinematics
 #include "parallel_link/parallel_link.hpp"
+//AW9523
+#include <Adafruit_AW9523.h>
+Adafruit_AW9523 aw;
 
 #define DEBUG_SERIAL Serial
 HardwareSerial &DXL_SERIAL = Serial1;
+
+#define SD_SPI_CS_PIN 4
+#define SD_SWITCH_PIN 4
+
+void aw9523_begin()
+{
+  Wire.begin(12,11);
+  if (! aw.begin(0x58, &Wire)) {
+    Serial.println("AW9523 not found? Check wiring!");
+    while (1) delay(10);  // halt forever
+  }
+  Serial.println("AW9523 found!");
+  aw.pinMode(SD_SWITCH_PIN, INPUT);
+}
+
+bool sd_exist()
+{
+  return !aw.digitalRead(SD_SWITCH_PIN);
+}
 
 // M5Stack Core2 PORT A
 constexpr uint8_t RX_SERVO = 9; // 32
@@ -61,7 +83,7 @@ DXLMotor m_rw(DXL_ID_RW, OP_VELOCITY);
 DXLMotor m_rf(DXL_ID_RF, OP_CURRENT_BASED_POSITION);
 DXLMotor m_rr(DXL_ID_RR, OP_CURRENT_BASED_POSITION);
 
-float target = 95.0 * DEG_TO_RAD;
+float target = 90.0 * DEG_TO_RAD; //95.0 * DEG_TO_RAD;
 float target_pitch = 0.0 * DEG_TO_RAD;
 // set dxl pos
 constexpr float DEFAULT_ANGLE = 14.0 * DEG_TO_RAD;
