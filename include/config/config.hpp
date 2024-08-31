@@ -76,12 +76,14 @@ constexpr float P_RATIO = 0.09;
 //  OP_EXTENDED_POSITION
 //  OP_CURRENT_BASED_POSITION
 //  OP_PWM
+// DXLMotor m_lw(DXL_ID_LW, OP_CURRENT);
 DXLMotor m_lw(DXL_ID_LW, OP_VELOCITY);
-DXLMotor m_lf(DXL_ID_LF, OP_CURRENT_BASED_POSITION);
-DXLMotor m_lr(DXL_ID_LR, OP_CURRENT_BASED_POSITION);
+DXLMotor m_lf(DXL_ID_LF, OP_POSITION);
+DXLMotor m_lr(DXL_ID_LR, OP_POSITION);
+// DXLMotor m_rw(DXL_ID_RW, OP_CURRENT);
 DXLMotor m_rw(DXL_ID_RW, OP_VELOCITY);
-DXLMotor m_rf(DXL_ID_RF, OP_CURRENT_BASED_POSITION);
-DXLMotor m_rr(DXL_ID_RR, OP_CURRENT_BASED_POSITION);
+DXLMotor m_rf(DXL_ID_RF, OP_POSITION);
+DXLMotor m_rr(DXL_ID_RR, OP_POSITION);
 
 float target = 90.0 * DEG_TO_RAD; //95.0 * DEG_TO_RAD;
 float target_pitch = 0.0 * DEG_TO_RAD;
@@ -167,7 +169,7 @@ enum class sel_param_t
 };
 sel_param_t sel_param = sel_param_t::KP;
 float Kgx = 20.0;
-float Kv = -0.0;
+float Kv = 1.0;
 float add = 1.0;
 float set_val = 0.0;
 void set_param()
