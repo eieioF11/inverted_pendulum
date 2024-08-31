@@ -41,8 +41,9 @@ void setup()
   Serial.begin(115200);
   // USBSerial.begin(115200);
   // AW9523(拡張IO)
-  aw9523_begin();
-  bool sdexist = sd_exist();
+  // aw9523_begin();
+  // bool sdexist = sd_exist();
+  bool sdexist = false;
   // M5設定
   auto cfg = M5.config();
   M5.begin(cfg);
@@ -283,8 +284,8 @@ void loop()
     float theta_T1 = lpf_x.filtering(diff_angle);
     float theta_T2 = normalize_angle(target_pitch - est_rpy.pitch);
     // float theta_T2 = lpf_y.filtering(normalize_angle(target_pitch - est_rpy.pitch));
-    float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
-    // float tan_theta_T2 = 0.0;
+    // float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
+    float tan_theta_T2 = 0.0;
     float xt = -leg_height * std::tan(theta_T1);
     // float xt = - v * dt * 0.1;
     float l_yt = leg_height - tan_theta_T2;
@@ -292,9 +293,12 @@ void loop()
     M5.Display.printf("xt:%5.3f|l:%5.3f|r:%5.3f\n", xt, l_yt, r_yt);
     auto [lf_theta, lr_theta] = parallel_link::inv_kinematics(xt, l_yt);
     auto [rf_theta, rr_theta] = parallel_link::inv_kinematics(xt, r_yt);
+    M5.Display.printf("lf:%5.3f lr:%5.3f\n", lf_theta, lr_theta);
+    M5.Display.printf("rf:%5.3f rr:%5.3f\n", rf_theta, rr_theta);
     set_angle(lf_theta, rf_theta, lr_theta, rr_theta);
   }
   else
+  
   {
     auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
     set_angle(theta1, theta2);
