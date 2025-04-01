@@ -67,10 +67,10 @@ public:
     if (set_pos)
       set_position();
   }
-  void set_position(float pos = 0.0,float range = HALF_PI)
+  void set_position(float pos = 0.0, float range = HALF_PI)
   {
     dxl_status_t status = get_status();
-    if (std::abs(status.position) < pos+range)
+    if (std::abs(status.position) < pos + range)
       bias_ = 0;
     else
       bias_ = TWO_PI;
@@ -112,6 +112,24 @@ public:
       move_pos(id_, angle);
       break;
     }
+  }
+  float get_velocity()
+  {
+    float velocity = dxl.getPresentVelocity(id_, UNIT_RPM);
+    if (reverse_)
+    {
+      velocity = -velocity;
+    }
+    return velocity;
+  }
+  float get_current()
+  {
+    float current = dxl.getPresentCurrent(id_, UNIT_MILLI_AMPERE) * 0.001;
+    if (reverse_)
+    {
+      current = -current;
+    }
+    return current;
   }
   dxl_status_t get_status()
   {

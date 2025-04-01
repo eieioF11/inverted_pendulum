@@ -145,6 +145,9 @@ Low priority   Small value
 setup and loop task priority 1
 */
 bool pressed = false;
+float torque_l = 0.0;
+float torque_r = 0.0;
+float current_l,current_r;
 void control_task(void *arg)
 {
   portTickType lt = xTaskGetTickCount();
@@ -189,18 +192,36 @@ void control_task(void *arg)
   set_val = pid_param.kp;
   // lqr.set_gain(LQR_K);
   uint32_t ctrl_timer = micros();
+  float pre_dtheta = 0.0;
+  float Mp = 0.01; // [kg]
+  float Mt = 0.05;
+  float Jt = 1.0; // [kg*m^2]
+  float mpr = Mp*WHEEL_RADIUS;
+  const float K1 = 1+((Mt+Mp)*WHEEL_RADIUS*WHEEL_RADIUS/Jt);
+  const float K2 = Jt+(Mt+Mp)*WHEEL_RADIUS*WHEEL_RADIUS;
   while (1)
   {
+    float L = leg_height;
+    // float rpm_l = m_lw.get_velocity();
+    // float rpm_r = m_rw.get_velocity();
+    float cur_torque_l = current_to_torque(m_lw.get_current());
+    float cur_torque_r = current_to_torque(m_rw.get_current());
     dt = (float)(micros() - ctrl_timer) / 1000000; // Calculate delta time
     ctrl_timer = micros();
-    float diff_angle = normalize_angle(target - est_rpy.roll);
-    pid.set_dt(dt);
-    float error = diff_angle / P_RATIO;
-    float rpm = pid.control(error) - Kgx * gx;
+    float theta = normalize_angle(target - est_rpy.roll);
+    float cos_theta = std::cos(theta);
+    float sin_theta = std::sin(theta);
+    float dtheta = gz;
+    float ddtheta = (dtheta - pre_dtheta ) / dt;
+    pre_dtheta = dtheta;
+    float mprL = mpr * L;
+    float torque = (K2+mprL*cos_theta)*ddtheta-mprL*sin_theta*dtheta*dtheta;
+    torque_l = K1*cur_torque_l + torque;
+    torque_r = K1*cur_torque_r + torque;
     bool stop = false;
-    if (std::abs(diff_angle) > HALF_PI)
+    if (std::abs(theta) > HALF_PI)
     {
-      rpm = 0;
+      torque_l = torque_r = torque = 0;
       pid.reset();
       auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
       // set_angle(theta1, theta2);
@@ -209,19 +230,19 @@ void control_task(void *arg)
     // swipe
     if (l_swipe.isSwipe())
     {
-      rpm = 0;
+      torque_l = torque_r = torque = 0;
       m_lw.on(true);
       m_rw.on(true);
     }
     else if (r_swipe.isSwipe())
     {
-      rpm = 0;
+      torque_l = torque_r = torque = 0;
       m_lw.on(false);
       m_rw.on(false);
     }
     else if (u_swipe.isSwipe())
     {
-      rpm = 0;
+      torque_l = torque_r = torque = 0;
       // up_dxl_pos();
     }
     else if (d_swipe.isSwipe())
@@ -230,16 +251,18 @@ void control_task(void *arg)
     }
     else if (!u_swipe.isSwipe() && pressed)
     {
-      rpm = 0;
+      torque_l = torque_r = torque = 0;
       pid.reset();
       stop = true;
     }
-    m_lw.move(rpm);
-    m_rw.move(rpm);
+    current_l = torque_to_current(torque_l)*1000.0;// mA
+    current_r = torque_to_current(torque_r)*1000.0;// mA
+    m_lw.move(current_l);
+    m_rw.move(current_r);
     // 水平維持
     // if (!stop)
     // {
-    //   float theta_T1 = lpf_x.filtering(diff_angle);
+    //   float theta_T1 = lpf_x.filtering(theta);
     //   float theta_T2 = normalize_angle(target_pitch - est_rpy.pitch);
     //   // float theta_T2 = lpf_y.filtering(normalize_angle(target_pitch - est_rpy.pitch));
     //   // float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
@@ -341,6 +364,8 @@ void loop()
   // M5.Display.printf("aRPY(%5.1f,%5.1f,%5.1f)\n", a_rpy.roll * RAD_TO_DEG, a_rpy.pitch * RAD_TO_DEG, a_rpy.yaw * RAD_TO_DEG);
   // M5.Display.printf("gRPY(%5.1f,%5.1f,%5.1f)\n", g_rpy.roll*RAD_TO_DEG, g_rpy.pitch*RAD_TO_DEG, g_rpy.yaw*RAD_TO_DEG);
   M5.Display.printf("RPY(%5.1f,%5.1f,%5.1f)\n", est_rpy.roll * RAD_TO_DEG, est_rpy.pitch * RAD_TO_DEG, est_rpy.yaw * RAD_TO_DEG);
+  M5.Display.printf("torque(%5.1f,%5.1f)\n", torque_l, torque_r);
+  M5.Display.printf("current(%5.1f,%5.1f)\n", current_l, current_r);
   // パラメータ設定
   set_param();
   M5.Display.endWrite();

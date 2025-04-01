@@ -76,14 +76,28 @@ constexpr float P_RATIO = 0.09;
 //  OP_EXTENDED_POSITION
 //  OP_CURRENT_BASED_POSITION
 //  OP_PWM
-// DXLMotor m_lw(DXL_ID_LW, OP_CURRENT);
-DXLMotor m_lw(DXL_ID_LW, OP_VELOCITY);
+
+// left
+DXLMotor m_lw(DXL_ID_LW, OP_CURRENT);
+// DXLMotor m_lw(DXL_ID_LW, OP_VELOCITY);
 DXLMotor m_lf(DXL_ID_LF, OP_POSITION);
 DXLMotor m_lr(DXL_ID_LR, OP_POSITION);
-// DXLMotor m_rw(DXL_ID_RW, OP_CURRENT);
-DXLMotor m_rw(DXL_ID_RW, OP_VELOCITY);
+// right
+DXLMotor m_rw(DXL_ID_RW, OP_CURRENT);
+// DXLMotor m_rw(DXL_ID_RW, OP_VELOCITY);
 DXLMotor m_rf(DXL_ID_RF, OP_POSITION);
 DXLMotor m_rr(DXL_ID_RR, OP_POSITION);
+
+constexpr float TORQUE_CONSTANT = 0.22/1.5; // 0.22[Nm]/1.5[A] [Nm/A]
+constexpr float INV_TORQUE_CONSTANT = 1.0 / TORQUE_CONSTANT; // 1.5/0.22 [A/Nm]
+constexpr float current_to_torque(float current)
+{
+  return current * TORQUE_CONSTANT; // [Nm]
+}
+constexpr float torque_to_current(float torque)
+{
+  return torque * INV_TORQUE_CONSTANT; // [A]
+}
 
 float target = 90.0 * DEG_TO_RAD; //95.0 * DEG_TO_RAD;
 float target_pitch = 0.0 * DEG_TO_RAD;
