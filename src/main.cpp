@@ -31,6 +31,12 @@ void up_dxl_pos()
   set_angle(theta1, theta2);
 }
 
+float torque_control(float error, float anguler, float motor_velocity, const pid_parameter_t &pid_param)
+{
+  float torque = pid_param.kp * error + pid_param.kd * anguler + Kw * motor_velocity;
+  return torque;
+}
+
 const char *fname = "/wifi.csv";
 File fp;
 std::string ssid;
@@ -152,11 +158,11 @@ void setup()
   // pid
   pid_param.kp = 60.0;
   pid_param.ki = 0.0;
-  pid_param.kd = 0.0;
+  pid_param.kd = -1.5;
   pid_param.control_freq = 1000.0;
   pid_param.output_upper_limit = MAX_RPM;
   pid_param.integral_upper_limit = 1000.0;
-  pid.set_parameter(pid_param);
+  // pid.set_parameter(pid_param);
   set_val = pid_param.kp;
   // lqr.set_gain(LQR_K);
   timer = micros();
@@ -177,7 +183,7 @@ void loop()
   dxl_status_t rw = m_rw.get_status();
   float vl = lw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
   float vr = rw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
-  float v = (vl + vr) * 0.5;
+  float wheel_v = (vl + vr) * 0.5;
   float dt = (float)(micros() - timer) / 1000000; // Calculate delta time
   timer = micros();
   unifiedButton.update();
@@ -231,14 +237,15 @@ void loop()
   float diff_angle = normalize_angle(target - est_rpy.roll);
   if (approx_zero(gx, 0.005))
     gx = 0.f;
-  pid.set_dt(dt);
+  // pid.set_dt(dt);
   float error = diff_angle / P_RATIO;
-  float rpm = pid.control(error) - Kgx * gx + Kv * v;
+  // float rpm = pid.control(error) - Kgx * gx + Kv * v;
+  float torque = torque_control(error, gx, wheel_v, pid_param);
   bool stop = false;
   if (std::abs(diff_angle) > HALF_PI)
   {
-    rpm = 0;
-    pid.reset();
+    torque = 0;
+    // pid.reset();
     auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
     set_angle(theta1, theta2);
     stop = true;
@@ -246,19 +253,19 @@ void loop()
   // swipe
   if (l_swipe.isSwipe())
   {
-    rpm = 0;
+    torque = 0;
     m_lw.on(true);
     m_rw.on(true);
   }
   else if (r_swipe.isSwipe())
   {
-    rpm = 0;
+    torque = 0;
     m_lw.on(false);
     m_rw.on(false);
   }
   else if (u_swipe.isSwipe())
   {
-    rpm = 0;
+    torque = 0;
     // up_dxl_pos();
   }
   else if (d_swipe.isSwipe())
@@ -267,18 +274,19 @@ void loop()
   }
   else if (!u_swipe.isSwipe() && pressed)
   {
-    rpm = 0;
-    pid.reset();
+    torque = 0;
+    // pid.reset();
     stop = true;
   }
-  m_lw.move(rpm);
-  m_rw.move(rpm);
+  m_lw.move(torque);
+  m_rw.move(torque);
   M5.Display.printf("diff_angle:%5.1f,gx:%5.1f\n", diff_angle * RAD_TO_DEG, gx);
   M5.Display.printf("target:%5.1f error:%5.1f\n", target * RAD_TO_DEG, error);
-  M5.Display.printf("rpm:%5.1f\n", rpm);
-  M5.Display.printf("v:%5.3f[m/s],", v);
-  M5.Display.printf("dd:%5.3f\n", v * dt);
+  M5.Display.printf("torque:%5.1f\n", torque);
+  M5.Display.printf("v:%5.3f[m/s]\n,", wheel_v);
+  // M5.Display.printf("dd:%5.3f\n", v * dt);
   // 水平維持
+  stop = true;
   if (!stop)
   {
     float theta_T1 = lpf_x.filtering(diff_angle);
@@ -298,7 +306,6 @@ void loop()
     set_angle(lf_theta, rf_theta, lr_theta, rr_theta);
   }
   else
-  
   {
     auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
     set_angle(theta1, theta2);
