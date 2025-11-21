@@ -171,7 +171,7 @@ enum class sel_param_t
   KW
 };
 sel_param_t sel_param = sel_param_t::KP;
-float Kw = -0.3;
+float Kw = 10.0;
 float add = 1.0;
 float set_val = 0.0;
 void set_param()
@@ -187,7 +187,7 @@ void set_param()
       // add = 50.0;
       sel_param = sel_param_t::KD;
       set_val = pid_param.kd;
-      add = 0.1;
+      add = 1.0;
       // add = 0.5;
       break;
     // case sel_param_t::KI:
@@ -198,7 +198,7 @@ void set_param()
     case sel_param_t::KD:
       sel_param = sel_param_t::KW;
       set_val = Kw;
-      add = 0.1;
+      add = 1.0;
       break;
     case sel_param_t::KW:
       sel_param = sel_param_t::KP;

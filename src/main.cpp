@@ -185,9 +185,9 @@ void control_task(void *arg)
   // m_lr.on(false);
   // m_rr.on(false);
   // pid
-  pid_param.kp = 45.0;
+  pid_param.kp = 65.0;
   pid_param.ki = 0.0;
-  pid_param.kd = -1.5;
+  pid_param.kd = -35.0;
   pid_param.control_freq = 1000.0;
   pid_param.output_upper_limit = MAX_RPM;
   pid_param.integral_upper_limit = 1000.0;
@@ -252,7 +252,7 @@ void control_task(void *arg)
     // M5.Display.printf("v:%5.3f[m/s]\n,", wheel_v);
     // M5.Display.printf("dd:%5.3f\n", v * dt);
     // 水平維持
-    stop = true;
+    // stop = true;
     if (!stop)
     {
       float theta_T1 = lpf_y.filtering(diff_angle);
@@ -264,7 +264,7 @@ void control_task(void *arg)
       // float xt = - v * dt * 0.1;
       float l_yt = leg_height - tan_theta_T2;
       float r_yt = leg_height + tan_theta_T2;
-      M5.Display.printf("xt:%5.3f|l:%5.3f|r:%5.3f\n", xt, l_yt, r_yt);
+      // M5.Display.printf("xt:%5.3f|l:%5.3f|r:%5.3f\n", xt, l_yt, r_yt);
       auto [lf_theta, lr_theta] = parallel_link::inv_kinematics(xt, l_yt);
       auto [rf_theta, rr_theta] = parallel_link::inv_kinematics(xt, r_yt);
       // M5.Display.printf("lf:%5.3f lr:%5.3f\n", lf_theta, lr_theta);
