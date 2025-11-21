@@ -15,7 +15,7 @@
 #include "swipe/swipe.hpp"
 // kinematics
 #include "parallel_link/parallel_link.hpp"
-//AW9523
+// AW9523
 #include <Adafruit_AW9523.h>
 Adafruit_AW9523 aw;
 
@@ -27,10 +27,12 @@ HardwareSerial &DXL_SERIAL = Serial1;
 
 void aw9523_begin()
 {
-  Wire.begin(12,11);
-  if (! aw.begin(0x58, &Wire)) {
+  Wire.begin(12, 11);
+  if (!aw.begin(0x58, &Wire))
+  {
     Serial.println("AW9523 not found? Check wiring!");
-    while (1) delay(10);  // halt forever
+    while (1)
+      delay(10); // halt forever
   }
   Serial.println("AW9523 found!");
   aw.pinMode(SD_SWITCH_PIN, INPUT);
@@ -86,7 +88,7 @@ DXLMotor m_rw(DXL_ID_RW, OP_CURRENT);
 DXLMotor m_rf(DXL_ID_RF, OP_POSITION);
 DXLMotor m_rr(DXL_ID_RR, OP_POSITION);
 
-float target_pitch = 0.0 * DEG_TO_RAD; //95.0 * DEG_TO_RAD;
+float target_pitch = 0.0 * DEG_TO_RAD; // 95.0 * DEG_TO_RAD;
 float target_roll = 0.0 * DEG_TO_RAD;
 // set dxl pos
 constexpr float DEFAULT_ANGLE = 14.0 * DEG_TO_RAD;
@@ -119,7 +121,8 @@ constexpr float CALIB_TIME = 2.0;
 bool claib_flag = false;
 int calib_count = 0;
 uint32_t timer;
-std::array<float, 3> gyro_offset = {-0.0014, 0.0045, 0.0};
+// std::array<float, 3> gyro_offset = {-0.0014, 0.0045, 0.0};
+std::array<float, 3> gyro_offset = {0.0, -0.0014, 0.0045};
 void gyro_caliblation()
 {
   float calib_time = (float)(micros() - timer) / 1000000;
@@ -130,7 +133,7 @@ void gyro_caliblation()
   M5.Display.printf("Gyro Calibration\n");
   M5.Display.printf("time:%4.3f\n", calib_time);
   float gx, gy, gz;
-  M5.Imu.getGyro(&gx, &gy, &gz);
+  M5.Imu.getGyro(&gy, &gz, &gx);
   M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
   gyro_offset[0] += gx;
   gyro_offset[1] += gy;
@@ -145,8 +148,8 @@ void gyro_caliblation()
 }
 
 // filter
-common_lib::LowpassFilterf lpf_x(0.7); //0.09
-common_lib::LowpassFilterf lpf_y(0.95);
+common_lib::LowpassFilterf lpf_x(0.95); // 0.09
+common_lib::LowpassFilterf lpf_y(0.7);
 common_lib::LowpassFilterf lpf_acc_x(LPF_ALPHA);
 common_lib::LowpassFilterf lpf_acc_y(LPF_ALPHA);
 common_lib::ComplementaryFilterf comp_filter_x(COMP_ALPHA);
@@ -200,7 +203,8 @@ void set_param()
     case sel_param_t::KW:
       sel_param = sel_param_t::KP;
       set_val = pid_param.kp;
-      add = 10.0;
+      // add = 10.0;
+      add = 5.0;
       break;
     }
   }

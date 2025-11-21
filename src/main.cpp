@@ -40,6 +40,7 @@ float torque_control(float error, float anguler, float motor_velocity, const pid
 
 float gx, gy, gz;
 float ax, ay, az;
+float error, wheel_v;
 
 const char *fname = "/wifi.csv";
 File fp;
@@ -184,7 +185,7 @@ void control_task(void *arg)
   // m_lr.on(false);
   // m_rr.on(false);
   // pid
-  pid_param.kp = 60.0;
+  pid_param.kp = 45.0;
   pid_param.ki = 0.0;
   pid_param.kd = -1.5;
   pid_param.control_freq = 1000.0;
@@ -199,10 +200,12 @@ void control_task(void *arg)
     dxl_status_t rw = m_rw.get_status();
     float vl = lw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
     float vr = rw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
-    float wheel_v = (vl + vr) * 0.5;
+    wheel_v = (vl + vr) * 0.5;
     // Set Goal Velocity using RPM
     float diff_angle = normalize_angle(target_pitch - est_rpy.pitch);
-    float error = diff_angle / P_RATIO;
+    error = diff_angle / P_RATIO;
+    if (approx_zero(gy, 0.005))
+      gy = 0.f;
     float torque = torque_control(error, gy, wheel_v, pid_param);
     bool stop = false;
     if (std::abs(diff_angle) > HALF_PI)
@@ -233,7 +236,7 @@ void control_task(void *arg)
     }
     else if (d_swipe.isSwipe())
     {
-      target_pitch = est_rpy.pitch;
+      // target_pitch = est_rpy.pitch;
     }
     else if (!u_swipe.isSwipe() && pressed)
     {
@@ -252,7 +255,7 @@ void control_task(void *arg)
     stop = true;
     if (!stop)
     {
-      float theta_T1 = lpf_x.filtering(diff_angle);
+      float theta_T1 = lpf_y.filtering(diff_angle);
       float theta_T2 = normalize_angle(target_roll - est_rpy.roll);
       // float theta_T2 = lpf_y.filtering(normalize_angle(target_pitch - est_rpy.pitch));
       // float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
@@ -312,8 +315,6 @@ void sensor_task(void *arg)
     // est_rpy.pitch = lpf_acc_y.filtering(a_rpy.pitch);
     est_rpy.roll = comp_filter_x.filtering(a_rpy.roll, g_rpy.roll);
     est_rpy.pitch = comp_filter_y.filtering(a_rpy.pitch, g_rpy.pitch);
-    if (approx_zero(gy, 0.005))
-      gy = 0.f;
     delay(1);
   }
 }
@@ -341,7 +342,8 @@ void loop()
   M5.Display.printf("ip:%s\n", WiFi.localIP().toString().c_str());
   M5.Display.printf("RPY(%5.1f,%5.1f,%5.1f)\n", est_rpy.roll * RAD_TO_DEG, est_rpy.pitch * RAD_TO_DEG, est_rpy.yaw * RAD_TO_DEG);
   M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
-  M5.Display.printf("target:%5.1f\n", target_pitch * RAD_TO_DEG);
+  M5.Display.printf("target:%5.1f error:%5.1f\n", target_pitch * RAD_TO_DEG, error);
+  M5.Display.printf("wheel_v:%5.3f[m/s]\n", wheel_v);
 
   // パラメータ設定
   set_param();
