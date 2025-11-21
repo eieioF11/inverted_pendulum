@@ -3,6 +3,7 @@
 #include <M5Unified.h>
 #include <Dynamixel2Arduino.h>
 #include <gob_unifiedButton.hpp>
+#include <FreeRTOS.h>
 // ota
 #define ESP32_RTOS
 #include "ota/ota.h"
@@ -37,10 +38,17 @@ float torque_control(float error, float anguler, float motor_velocity, const pid
   return torque;
 }
 
+float gx, gy, gz;
+float ax, ay, az;
+
 const char *fname = "/wifi.csv";
 File fp;
 std::string ssid;
 std::string password;
+
+TaskHandle_t thp[6]; // マルチスレッドのタスクハンドル格納用
+void control_task(void *arg);
+void sensor_task(void *arg);
 
 void setup()
 {
@@ -126,6 +134,26 @@ void setup()
   auto btnC = unifiedButton.getButtonC();
   assert(btnC);
   btnC->setLabelText(">");
+
+  Serial.printf("ssid:%s\n", ssid.c_str());
+  Serial.printf("ip:%s\n", WiFi.localIP().toString().c_str());
+  xTaskCreatePinnedToCore(control_task, "control task", 10000, NULL, 5, NULL, 0);
+  xTaskCreatePinnedToCore(sensor_task, "sensor task", 4048, NULL, 2, NULL, 1);
+  timer = micros();
+}
+/*
+FreeRTOS memo
+core 0 Background task execution
+core 1 Main task execution
+High priority  Large value
+Low priority   Small value
+setup and loop task priority 1
+*/
+bool pressed = false;
+void control_task(void *arg)
+{
+  portTickType lt = xTaskGetTickCount();
+  // constexpr double control_interval = 0.01; // 10ms
   // dynamixel 設定
   DXL_SERIAL.begin(57600, SERIAL_8N1, RX_SERVO, TX_SERVO);
   dxl = Dynamixel2Arduino(DXL_SERIAL);
@@ -162,30 +190,136 @@ void setup()
   pid_param.control_freq = 1000.0;
   pid_param.output_upper_limit = MAX_RPM;
   pid_param.integral_upper_limit = 1000.0;
-  // pid.set_parameter(pid_param);
   set_val = pid_param.kp;
   // lqr.set_gain(LQR_K);
-  timer = micros();
+  uint32_t ctrl_timer = micros();
+  while (1)
+  {
+    dxl_status_t lw = m_lw.get_status();
+    dxl_status_t rw = m_rw.get_status();
+    float vl = lw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
+    float vr = rw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
+    float wheel_v = (vl + vr) * 0.5;
+    // Set Goal Velocity using RPM
+    float diff_angle = normalize_angle(target_pitch - est_rpy.pitch);
+    float error = diff_angle / P_RATIO;
+    float torque = torque_control(error, gy, wheel_v, pid_param);
+    bool stop = false;
+    if (std::abs(diff_angle) > HALF_PI)
+    {
+      torque = 0;
+      // pid.reset();
+      auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
+      set_angle(theta1, theta2);
+      stop = true;
+    }
+    // swipe
+    if (l_swipe.isSwipe())
+    {
+      torque = 0;
+      m_lw.on(true);
+      m_rw.on(true);
+    }
+    else if (r_swipe.isSwipe())
+    {
+      torque = 0;
+      m_lw.on(false);
+      m_rw.on(false);
+    }
+    else if (u_swipe.isSwipe())
+    {
+      torque = 0;
+      // up_dxl_pos();
+    }
+    else if (d_swipe.isSwipe())
+    {
+      target_pitch = est_rpy.pitch;
+    }
+    else if (!u_swipe.isSwipe() && pressed)
+    {
+      torque = 0;
+      // pid.reset();
+      stop = true;
+    }
+    m_lw.move(torque);
+    m_rw.move(torque);
+    // M5.Display.printf("diff_angle:%5.1f,gx:%5.1f\n", diff_angle * RAD_TO_DEG, gx);
+    // M5.Display.printf("target:%5.1f error:%5.1f\n", target_pitch * RAD_TO_DEG, error);
+    // M5.Display.printf("torque:%5.1f\n", torque);
+    // M5.Display.printf("v:%5.3f[m/s]\n,", wheel_v);
+    // M5.Display.printf("dd:%5.3f\n", v * dt);
+    // 水平維持
+    stop = true;
+    if (!stop)
+    {
+      float theta_T1 = lpf_x.filtering(diff_angle);
+      float theta_T2 = normalize_angle(target_roll - est_rpy.roll);
+      // float theta_T2 = lpf_y.filtering(normalize_angle(target_pitch - est_rpy.pitch));
+      // float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
+      float tan_theta_T2 = 0.0;
+      float xt = -leg_height * std::tan(theta_T1);
+      // float xt = - v * dt * 0.1;
+      float l_yt = leg_height - tan_theta_T2;
+      float r_yt = leg_height + tan_theta_T2;
+      M5.Display.printf("xt:%5.3f|l:%5.3f|r:%5.3f\n", xt, l_yt, r_yt);
+      auto [lf_theta, lr_theta] = parallel_link::inv_kinematics(xt, l_yt);
+      auto [rf_theta, rr_theta] = parallel_link::inv_kinematics(xt, r_yt);
+      // M5.Display.printf("lf:%5.3f lr:%5.3f\n", lf_theta, lr_theta);
+      // M5.Display.printf("rf:%5.3f rr:%5.3f\n", rf_theta, rr_theta);
+      set_angle(lf_theta, rf_theta, lr_theta, rr_theta);
+    }
+    else
+    {
+      auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
+      set_angle(theta1, theta2);
+    }
+    // vTaskDelayUntil(&lt, (control_interval * 100) / portTICK_RATE_MS);
+    delay(1);
+  }
+}
 
-  Serial.printf("ssid:%s\n", ssid.c_str());
-  Serial.printf("ip:%s\n", WiFi.localIP().toString().c_str());
+float sensor_dt = 0.;
+void sensor_task(void *arg)
+{
+  uint32_t sensor_timer = micros();
+  while (1)
+  {
+    M5.update();
+    sensor_dt = (float)(micros() - sensor_timer) / 1000000; // Calculate delta time
+    sensor_timer = micros();
+    if (claib_flag)
+    {
+      gyro_caliblation();
+      return;
+    }
+    // IMU
+    float raw_ax, raw_ay, raw_az;
+    float raw_gx, raw_gy, raw_gz;
+    M5.Imu.getAccel(&raw_ay, &raw_az, &raw_ax);
+    M5.Imu.getGyro(&raw_gy, &raw_gz, &raw_gx);
+    gx = (raw_gx - gyro_offset[0]) * DEG_TO_RAD;
+    gy = (raw_gy - gyro_offset[1]) * DEG_TO_RAD;
+    gz = (raw_gz - gyro_offset[2]) * DEG_TO_RAD;
+    ax = raw_ax;
+    ay = raw_ay;
+    az = raw_az;
+    // 姿勢計算
+    rpy_t a_rpy = acc_rpy(ax, ay, az);
+    rpy_t g_rpy = gyro_rpy(est_rpy, gx, gy, gz, sensor_dt);
+    est_rpy.yaw = g_rpy.yaw;
+    // a_rpy.roll = normalize_angle(a_rpy.roll - HALF_PI);
+    // est_rpy.roll = lpf_acc_x.filtering(a_rpy.roll);
+    // est_rpy.pitch = lpf_acc_y.filtering(a_rpy.pitch);
+    est_rpy.roll = comp_filter_x.filtering(a_rpy.roll, g_rpy.roll);
+    est_rpy.pitch = comp_filter_y.filtering(a_rpy.pitch, g_rpy.pitch);
+    if (approx_zero(gy, 0.005))
+      gy = 0.f;
+    delay(1);
+  }
 }
 
 void loop()
 {
-  M5.update();
-  if (claib_flag)
-  {
-    gyro_caliblation();
-    return;
-  }
-  dxl_status_t lw = m_lw.get_status();
-  dxl_status_t rw = m_rw.get_status();
-  float vl = lw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
-  float vr = rw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
-  float wheel_v = (vl + vr) * 0.5;
-  float dt = (float)(micros() - timer) / 1000000; // Calculate delta time
-  timer = micros();
   unifiedButton.update();
   M5.Display.startWrite();
   M5.Display.setCursor(0, 0);
@@ -205,111 +339,10 @@ void loop()
   // M5.Display.printf("x:%4d y:%4d press:%d\n", x, y, pressed);
   M5.Display.printf("ssid:%s\n", ssid.c_str());
   M5.Display.printf("ip:%s\n", WiFi.localIP().toString().c_str());
-  M5.Display.printf("dt:%4.3f\n", dt);
-  // IMU
-  float raw_ax, raw_ay, raw_az;
-  float raw_gx, raw_gy, raw_gz;
-  M5.Imu.getAccel(&raw_ax, &raw_ay, &raw_az);
-  M5.Imu.getGyro(&raw_gx, &raw_gy, &raw_gz);
-  float gx = (raw_gx - gyro_offset[0]) * DEG_TO_RAD;
-  float gy = (raw_gy - gyro_offset[1]) * DEG_TO_RAD;
-  float gz = (raw_gz - gyro_offset[2]) * DEG_TO_RAD;
-  float ax = raw_ax;
-  float ay = raw_ay;
-  float az = raw_az;
-  // 姿勢計算
-  rpy_t a_rpy = acc_rpy(ax, ay, az);
-  rpy_t g_rpy = gyro_rpy(est_rpy, gx, gy, gz, dt);
-  est_rpy.yaw = g_rpy.yaw;
-  // a_rpy.roll = normalize_angle(a_rpy.roll - HALF_PI);
-  // est_rpy.roll = lpf_acc_x.filtering(a_rpy.roll);
-  // est_rpy.pitch = lpf_acc_y.filtering(a_rpy.pitch);
-  est_rpy.roll = comp_filter_x.filtering(a_rpy.roll, g_rpy.roll);
-  est_rpy.pitch = comp_filter_y.filtering(a_rpy.pitch, g_rpy.pitch);
-  // M5.Display.printf("acc(%5.1f,%5.1f,%5.1f)\n", ax, ay, az);
-  // M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
-  // M5.Display.printf("offset(%6.4f,%6.4f,%6.4f)\n", gyro_offset[0], gyro_offset[1], gyro_offset[2]);
-  // M5.Display.printf("aRPY(%5.1f,%5.1f,%5.1f)\n", a_rpy.roll * RAD_TO_DEG, a_rpy.pitch * RAD_TO_DEG, a_rpy.yaw * RAD_TO_DEG);
-  // M5.Display.printf("gRPY(%5.1f,%5.1f,%5.1f)\n", g_rpy.roll*RAD_TO_DEG, g_rpy.pitch*RAD_TO_DEG, g_rpy.yaw*RAD_TO_DEG);
   M5.Display.printf("RPY(%5.1f,%5.1f,%5.1f)\n", est_rpy.roll * RAD_TO_DEG, est_rpy.pitch * RAD_TO_DEG, est_rpy.yaw * RAD_TO_DEG);
-  // Set Goal Velocity using RPM
-  // dist += v * dt;
-  float diff_angle = normalize_angle(target - est_rpy.roll);
-  if (approx_zero(gx, 0.005))
-    gx = 0.f;
-  // pid.set_dt(dt);
-  float error = diff_angle / P_RATIO;
-  // float rpm = pid.control(error) - Kgx * gx + Kv * v;
-  float torque = torque_control(error, gx, wheel_v, pid_param);
-  bool stop = false;
-  if (std::abs(diff_angle) > HALF_PI)
-  {
-    torque = 0;
-    // pid.reset();
-    auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
-    set_angle(theta1, theta2);
-    stop = true;
-  }
-  // swipe
-  if (l_swipe.isSwipe())
-  {
-    torque = 0;
-    m_lw.on(true);
-    m_rw.on(true);
-  }
-  else if (r_swipe.isSwipe())
-  {
-    torque = 0;
-    m_lw.on(false);
-    m_rw.on(false);
-  }
-  else if (u_swipe.isSwipe())
-  {
-    torque = 0;
-    // up_dxl_pos();
-  }
-  else if (d_swipe.isSwipe())
-  {
-    target = est_rpy.roll;
-  }
-  else if (!u_swipe.isSwipe() && pressed)
-  {
-    torque = 0;
-    // pid.reset();
-    stop = true;
-  }
-  m_lw.move(torque);
-  m_rw.move(torque);
-  M5.Display.printf("diff_angle:%5.1f,gx:%5.1f\n", diff_angle * RAD_TO_DEG, gx);
-  M5.Display.printf("target:%5.1f error:%5.1f\n", target * RAD_TO_DEG, error);
-  M5.Display.printf("torque:%5.1f\n", torque);
-  M5.Display.printf("v:%5.3f[m/s]\n,", wheel_v);
-  // M5.Display.printf("dd:%5.3f\n", v * dt);
-  // 水平維持
-  stop = true;
-  if (!stop)
-  {
-    float theta_T1 = lpf_x.filtering(diff_angle);
-    float theta_T2 = normalize_angle(target_pitch - est_rpy.pitch);
-    // float theta_T2 = lpf_y.filtering(normalize_angle(target_pitch - est_rpy.pitch));
-    // float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
-    float tan_theta_T2 = 0.0;
-    float xt = -leg_height * std::tan(theta_T1);
-    // float xt = - v * dt * 0.1;
-    float l_yt = leg_height - tan_theta_T2;
-    float r_yt = leg_height + tan_theta_T2;
-    M5.Display.printf("xt:%5.3f|l:%5.3f|r:%5.3f\n", xt, l_yt, r_yt);
-    auto [lf_theta, lr_theta] = parallel_link::inv_kinematics(xt, l_yt);
-    auto [rf_theta, rr_theta] = parallel_link::inv_kinematics(xt, r_yt);
-    M5.Display.printf("lf:%5.3f lr:%5.3f\n", lf_theta, lr_theta);
-    M5.Display.printf("rf:%5.3f rr:%5.3f\n", rf_theta, rr_theta);
-    set_angle(lf_theta, rf_theta, lr_theta, rr_theta);
-  }
-  else
-  {
-    auto [theta1, theta2] = parallel_link::inv_kinematics(0.0, leg_height);
-    set_angle(theta1, theta2);
-  }
+  M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
+  M5.Display.printf("target:%5.1f\n", target_pitch * RAD_TO_DEG);
+
   // パラメータ設定
   set_param();
   M5.Display.endWrite();

@@ -86,8 +86,8 @@ DXLMotor m_rw(DXL_ID_RW, OP_CURRENT);
 DXLMotor m_rf(DXL_ID_RF, OP_POSITION);
 DXLMotor m_rr(DXL_ID_RR, OP_POSITION);
 
-float target = 90.0 * DEG_TO_RAD; //95.0 * DEG_TO_RAD;
-float target_pitch = 0.0 * DEG_TO_RAD;
+float target_pitch = 0.0 * DEG_TO_RAD; //95.0 * DEG_TO_RAD;
+float target_roll = 0.0 * DEG_TO_RAD;
 // set dxl pos
 constexpr float DEFAULT_ANGLE = 14.0 * DEG_TO_RAD;
 void set_dxl_pos(double angle = 0.0)
