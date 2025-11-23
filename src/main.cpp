@@ -38,9 +38,17 @@ float torque_control(float error, float anguler, float motor_velocity, const pid
   return torque;
 }
 
+std::tuple<float, float> pitch_control(float theta,float h)
+{
+  float x = -h * std::sin(theta);
+  float y = h * std::cos(theta);
+  return std::make_tuple(x, y);
+}
+
 float gx, gy, gz;
 float ax, ay, az;
 float error, wheel_v;
+float diff_angle;
 
 const char *fname = "/wifi.csv";
 File fp;
@@ -202,7 +210,7 @@ void control_task(void *arg)
     float vr = rw.velocity * constants::RPM_TO_MPS * WHEEL_RADIUS;
     wheel_v = (vl + vr) * 0.5;
     // Set Goal Velocity using RPM
-    float diff_angle = normalize_angle(target_pitch - est_rpy.pitch);
+    diff_angle = normalize_angle(target_pitch - est_rpy.pitch);
     error = diff_angle / P_RATIO;
     if (approx_zero(gy, 0.005))
       gy = 0.f;
@@ -255,21 +263,25 @@ void control_task(void *arg)
     // stop = true;
     if (!stop)
     {
-      float theta_T1 = lpf_y.filtering(diff_angle);
-      float theta_T2 = normalize_angle(target_roll - est_rpy.roll);
-      // float theta_T2 = lpf_y.filtering(normalize_angle(target_pitch - est_rpy.pitch));
-      // float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
-      float tan_theta_T2 = 0.0;
-      float xt = -leg_height * std::tan(theta_T1);
-      // float xt = - v * dt * 0.1;
-      float l_yt = leg_height - tan_theta_T2;
-      float r_yt = leg_height + tan_theta_T2;
-      // M5.Display.printf("xt:%5.3f|l:%5.3f|r:%5.3f\n", xt, l_yt, r_yt);
-      auto [lf_theta, lr_theta] = parallel_link::inv_kinematics(xt, l_yt);
-      auto [rf_theta, rr_theta] = parallel_link::inv_kinematics(xt, r_yt);
-      // M5.Display.printf("lf:%5.3f lr:%5.3f\n", lf_theta, lr_theta);
-      // M5.Display.printf("rf:%5.3f rr:%5.3f\n", rf_theta, rr_theta);
+      // float theta_T1 = lpf_y.filtering(diff_angle);
+      auto [x, y] = pitch_control(diff_angle, leg_height);
+      auto [lf_theta, lr_theta] = parallel_link::inv_kinematics(x, y);
+      auto [rf_theta, rr_theta] = parallel_link::inv_kinematics(x, y);
       set_angle(lf_theta, rf_theta, lr_theta, rr_theta);
+      // float theta_T2 = normalize_angle(target_roll - est_rpy.roll);
+      // // float theta_T2 = lpf_y.filtering(normalize_angle(target_pitch - est_rpy.pitch));
+      // // float tan_theta_T2 = parallel_link::HALF_LEG_WIDTH * std::tan(theta_T2);
+      // float tan_theta_T2 = 0.0;
+      // float xt = -leg_height * std::tan(theta_T1);
+      // // float xt = - v * dt * 0.1;
+      // float l_yt = leg_height - tan_theta_T2;
+      // float r_yt = leg_height + tan_theta_T2;
+      // // M5.Display.printf("xt:%5.3f|l:%5.3f|r:%5.3f\n", xt, l_yt, r_yt);
+      // auto [lf_theta, lr_theta] = parallel_link::inv_kinematics(xt, l_yt);
+      // auto [rf_theta, rr_theta] = parallel_link::inv_kinematics(xt, r_yt);
+      // // M5.Display.printf("lf:%5.3f lr:%5.3f\n", lf_theta, lr_theta);
+      // // M5.Display.printf("rf:%5.3f rr:%5.3f\n", rf_theta, rr_theta);
+      // set_angle(lf_theta, rf_theta, lr_theta, rr_theta);
     }
     else
     {
@@ -342,7 +354,7 @@ void loop()
   M5.Display.printf("ip:%s\n", WiFi.localIP().toString().c_str());
   M5.Display.printf("RPY(%5.1f,%5.1f,%5.1f)\n", est_rpy.roll * RAD_TO_DEG, est_rpy.pitch * RAD_TO_DEG, est_rpy.yaw * RAD_TO_DEG);
   M5.Display.printf("gyro(%5.1f,%5.1f,%5.1f)\n", gx, gy, gz);
-  M5.Display.printf("target:%5.1f error:%5.1f\n", target_pitch * RAD_TO_DEG, error);
+  M5.Display.printf("target:%5.1f error:%5.1f d_angle:%5.1f\n", target_pitch * RAD_TO_DEG, error, diff_angle * RAD_TO_DEG);
   M5.Display.printf("wheel_v:%5.3f[m/s]\n", wheel_v);
 
   // パラメータ設定

@@ -21,7 +21,7 @@ namespace parallel_link
   constexpr float MIN_LEG_HEIGHT = 35.0 * common_lib::constants::mm_to_m;
   constexpr float MAX_LEG_HEIGHT = 90.0 * common_lib::constants::mm_to_m;
   // constexpr float DEFAULT_LEG_HEIGHT = 40.0 * common_lib::constants::mm_to_m;
-  constexpr float DEFAULT_LEG_HEIGHT = 35.0 * common_lib::constants::mm_to_m;
+  constexpr float DEFAULT_LEG_HEIGHT = 30.0 * common_lib::constants::mm_to_m;
 
   std::tuple<double, double> inv_kinematics(float xT, float yT)
   {
